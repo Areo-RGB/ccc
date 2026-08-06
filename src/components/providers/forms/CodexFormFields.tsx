@@ -35,7 +35,6 @@ import {
   type FetchedModel,
 } from "@/lib/api/model-fetch";
 import { CustomUserAgentField } from "./CustomUserAgentField";
-import { LocalProxyRequestOverridesField } from "./LocalProxyRequestOverridesField";
 import { cn } from "@/lib/utils";
 import type {
   ClaudeApiKeyField,
@@ -112,10 +111,6 @@ interface CodexFormFieldsProps {
   // Local proxy User-Agent override
   customUserAgent: string;
   onCustomUserAgentChange: (value: string) => void;
-  localProxyHeadersOverride: string;
-  onLocalProxyHeadersOverrideChange: (value: string) => void;
-  localProxyBodyOverride: string;
-  onLocalProxyBodyOverrideChange: (value: string) => void;
 }
 
 type CodexCatalogRow = CodexCatalogModel & { rowId: string };
@@ -206,10 +201,6 @@ export function CodexFormFields({
   speedTestEndpoints,
   customUserAgent,
   onCustomUserAgentChange,
-  localProxyHeadersOverride,
-  onLocalProxyHeadersOverrideChange,
-  localProxyBodyOverride,
-  onLocalProxyBodyOverrideChange,
 }: CodexFormFieldsProps) {
   const { t } = useTranslation();
 
@@ -245,12 +236,8 @@ export function CodexFormFields({
 
   // 高级区在有任何可见配置时自动展开（仅折叠→展开，不会自动折叠）：自定义 UA /
   // 请求覆盖 / 已填模型映射 / 原生 Responses（需维护 catalog）/ 已配置思考能力。
-  const hasRequestOverrides = Boolean(
-    localProxyHeadersOverride.trim() || localProxyBodyOverride.trim(),
-  );
   const hasAnyAdvancedValue =
     !!customUserAgent ||
-    hasRequestOverrides ||
     catalogModels.length > 0 ||
     apiFormat === "openai_responses" ||
     isAnthropicFormat ||
@@ -1073,14 +1060,6 @@ export function CodexFormFields({
                 value={customUserAgent}
                 onChange={onCustomUserAgentChange}
               />
-              <div className="border-t border-border-default pt-3">
-                <LocalProxyRequestOverridesField
-                  headersJson={localProxyHeadersOverride}
-                  bodyJson={localProxyBodyOverride}
-                  onHeadersJsonChange={onLocalProxyHeadersOverrideChange}
-                  onBodyJsonChange={onLocalProxyBodyOverrideChange}
-                />
-              </div>
             </div>
           </CollapsibleContent>
         </Collapsible>

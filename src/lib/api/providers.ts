@@ -34,16 +34,6 @@ export interface ClaudeDesktopStatus {
   mode?: "direct" | "proxy" | null;
   expectedBaseUrl?: string | null;
   actualBaseUrl?: string | null;
-  proxyRunning: boolean;
-  staleRawModels: boolean;
-  missingRouteMappings: boolean;
-  gatewayTokenConfigured: boolean;
-}
-
-export interface ClaudeDesktopDefaultRoute {
-  routeId: string;
-  envKey: string;
-  supports1m: boolean;
 }
 
 export const providersApi = {
@@ -113,10 +103,6 @@ export const providersApi = {
 
   async getClaudeDesktopStatus(): Promise<ClaudeDesktopStatus> {
     return await invoke("get_claude_desktop_status");
-  },
-
-  async getClaudeDesktopDefaultRoutes(): Promise<ClaudeDesktopDefaultRoute[]> {
-    return await invoke("get_claude_desktop_default_routes");
   },
 
   async updateTrayMenu(): Promise<boolean> {

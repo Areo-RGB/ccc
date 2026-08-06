@@ -34,12 +34,6 @@ import { useStreamCheck } from "@/hooks/useStreamCheck";
 import { ProviderCard } from "@/components/providers/ProviderCard";
 import { ProviderEmptyState } from "@/components/providers/ProviderEmptyState";
 import {
-  useAutoFailoverEnabled,
-  useFailoverQueue,
-  useAddToFailoverQueue,
-  useRemoveFromFailoverQueue,
-} from "@/lib/query/failover";
-import {
   useCurrentOmoProviderId,
   useCurrentOmoSlimProviderId,
 } from "@/lib/query/omo";
@@ -64,9 +58,6 @@ interface ProviderListProps {
   onOpenTerminal?: (provider: Provider) => void;
   onCreate?: () => void;
   isLoading?: boolean;
-  isProxyRunning?: boolean; // 代理服务运行状态
-  isProxyTakeover?: boolean; // 代理接管模式（Live配置已被接管）
-  activeProviderId?: string; // 代理当前实际使用的供应商 ID（用于故障转移模式下标注绿色边框）
   onSetAsDefault?: (provider: Provider) => void; // OpenClaw: set as default model
 }
 
@@ -86,9 +77,6 @@ export function ProviderList({
   onOpenTerminal,
   onCreate,
   isLoading = false,
-  isProxyRunning = false,
-  isProxyTakeover = false,
-  activeProviderId,
   onSetAsDefault,
 }: ProviderListProps) {
   const { t } = useTranslation();
@@ -146,48 +134,9 @@ export function ProviderList({
     [appId, openclawDefaultModel],
   );
 
-  // 故障转移相关
-  const { data: isAutoFailoverEnabled } = useAutoFailoverEnabled(appId);
-  const { data: failoverQueue } = useFailoverQueue(appId);
-  const addToQueue = useAddToFailoverQueue();
-  const removeFromQueue = useRemoveFromFailoverQueue();
-
-  const isFailoverModeActive =
-    isProxyTakeover === true && isAutoFailoverEnabled === true;
-
   const isOpenCode = appId === "opencode";
   const { data: currentOmoId } = useCurrentOmoProviderId(isOpenCode);
   const { data: currentOmoSlimId } = useCurrentOmoSlimProviderId(isOpenCode);
-
-  const getFailoverPriority = useCallback(
-    (providerId: string): number | undefined => {
-      if (!isFailoverModeActive || !failoverQueue) return undefined;
-      const index = failoverQueue.findIndex(
-        (item) => item.providerId === providerId,
-      );
-      return index >= 0 ? index + 1 : undefined;
-    },
-    [isFailoverModeActive, failoverQueue],
-  );
-
-  const isInFailoverQueue = useCallback(
-    (providerId: string): boolean => {
-      if (!isFailoverModeActive || !failoverQueue) return false;
-      return failoverQueue.some((item) => item.providerId === providerId);
-    },
-    [isFailoverModeActive, failoverQueue],
-  );
-
-  const handleToggleFailover = useCallback(
-    (providerId: string, enabled: boolean) => {
-      if (enabled) {
-        addToQueue.mutate({ appType: appId, providerId });
-      } else {
-        removeFromQueue.mutate({ appType: appId, providerId });
-      }
-    },
-    [appId, addToQueue, removeFromQueue],
-  );
 
   const [searchTerm, setSearchTerm] = useState("");
   const [isSearchOpen, setIsSearchOpen] = useState(false);
@@ -199,7 +148,6 @@ export function ProviderList({
     refetchInterval: appId === "claude-desktop" ? 5000 : false,
   });
 
-  // 连通性检查不发真实请求、无封号/计费风险，直接执行（无需确认弹窗）。
   const handleTest = useCallback(
     (provider: Provider) => {
       checkProvider(provider.id, provider.name);
@@ -207,7 +155,6 @@ export function ProviderList({
     [checkProvider],
   );
 
-  // Import current live config as default provider
   const queryClient = useQueryClient();
   const importMutation = useMutation({
     mutationFn: async (): Promise<boolean> => {
@@ -241,11 +188,7 @@ export function ProviderList({
       }
     },
     onError: (error: unknown) => {
-      // Tauri invoke 的 reject 值是后端序列化出的纯字符串而非 Error 对象，
-      // 取 .message 只会得到 undefined（空 toast）。
       toast.error(extractErrorMessage(error) || t("settings.importFailed"));
-      // 导入失败前也可能已产生需要上屏的副作用：GrokBuild 官方登录态下点
-      // 导入，命令层会先补种官方条目、随后才因 live 不可导入而报错。
       queryClient.invalidateQueries({ queryKey: ["providers", appId] });
     },
   });
@@ -305,34 +248,6 @@ export function ProviderList({
         }),
       );
       return messages;
-    }
-
-    if (claudeDesktopStatus.staleRawModels) {
-      messages.push(
-        t("claudeDesktop.statusStaleRawModels", {
-          defaultValue:
-            "Claude Desktop profile 中存在非 claude-* 模型名，新版 Claude Desktop 可能拒绝加载；重新切换当前供应商可修复。",
-        }),
-      );
-    }
-    if (claudeDesktopStatus.missingRouteMappings) {
-      messages.push(
-        t("claudeDesktop.statusMissingRouteMappings", {
-          defaultValue:
-            "当前供应商启用了模型映射，但没有有效路由；请编辑供应商并补全至少一个模型映射。",
-        }),
-      );
-    }
-    if (
-      claudeDesktopStatus.mode === "proxy" &&
-      !claudeDesktopStatus.gatewayTokenConfigured
-    ) {
-      messages.push(
-        t("claudeDesktop.statusGatewayTokenMissing", {
-          defaultValue:
-            "当前本地路由 token 尚未生成；重新切换该供应商会写入新的本地 token。",
-        }),
-      );
     }
 
     const expected = claudeDesktopStatus.expectedBaseUrl?.replace(/\/+$/, "");
@@ -422,15 +337,6 @@ export function ProviderList({
                 onOpenTerminal={onOpenTerminal}
                 onTest={handleTest}
                 isTesting={isChecking(provider.id)}
-                isProxyRunning={isProxyRunning}
-                isProxyTakeover={isProxyTakeover}
-                isAutoFailoverEnabled={isFailoverModeActive}
-                failoverPriority={getFailoverPriority(provider.id)}
-                isInFailoverQueue={isInFailoverQueue(provider.id)}
-                onToggleFailover={(enabled) =>
-                  handleToggleFailover(provider.id, enabled)
-                }
-                activeProviderId={activeProviderId}
                 // OpenClaw: default model / Hermes: model.provider === provider.id
                 isDefaultModel={
                   appId === "hermes"
@@ -561,13 +467,6 @@ interface SortableProviderCardProps {
   onOpenTerminal?: (provider: Provider) => void;
   onTest?: (provider: Provider) => void;
   isTesting: boolean;
-  isProxyRunning: boolean;
-  isProxyTakeover: boolean;
-  isAutoFailoverEnabled: boolean;
-  failoverPriority?: number;
-  isInFailoverQueue: boolean;
-  onToggleFailover: (enabled: boolean) => void;
-  activeProviderId?: string;
   // OpenClaw: default model
   isDefaultModel?: boolean;
   onSetAsDefault?: () => void;
@@ -592,13 +491,6 @@ function SortableProviderCard({
   onOpenTerminal,
   onTest,
   isTesting,
-  isProxyRunning,
-  isProxyTakeover,
-  isAutoFailoverEnabled,
-  failoverPriority,
-  isInFailoverQueue,
-  onToggleFailover,
-  activeProviderId,
   isDefaultModel,
   onSetAsDefault,
 }: SortableProviderCardProps) {
@@ -639,18 +531,11 @@ function SortableProviderCard({
         onOpenTerminal={onOpenTerminal}
         onTest={onTest}
         isTesting={isTesting}
-        isProxyRunning={isProxyRunning}
-        isProxyTakeover={isProxyTakeover}
         dragHandleProps={{
           attributes,
           listeners,
           isDragging,
         }}
-        isAutoFailoverEnabled={isAutoFailoverEnabled}
-        failoverPriority={failoverPriority}
-        isInFailoverQueue={isInFailoverQueue}
-        onToggleFailover={onToggleFailover}
-        activeProviderId={activeProviderId}
         // OpenClaw: default model
         isDefaultModel={isDefaultModel}
         onSetAsDefault={onSetAsDefault}

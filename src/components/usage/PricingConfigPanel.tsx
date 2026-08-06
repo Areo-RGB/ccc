@@ -31,7 +31,7 @@ import { PricingEditModal } from "./PricingEditModal";
 import { isNonNegativeDecimalString, type ModelPricing } from "@/types/usage";
 import { Plus, Pencil, Trash2, Loader2 } from "lucide-react";
 import { toast } from "sonner";
-import { proxyApi } from "@/lib/api/proxy";
+import { pricingApi } from "@/lib/api";
 import { ModelsDevAutoSyncPanel } from "./ModelsDevAutoSyncPanel";
 
 const PRICING_APPS = ["claude", "codex", "gemini", "grokbuild"] as const;
@@ -85,8 +85,8 @@ export function PricingConfigPanel() {
         const results = await Promise.all(
           PRICING_APPS.map(async (app) => {
             const [multiplier, source] = await Promise.all([
-              proxyApi.getDefaultCostMultiplier(app),
-              proxyApi.getPricingModelSource(app),
+              pricingApi.getDefaultCostMultiplier(app),
+              pricingApi.getPricingModelSource(app),
             ]);
             return {
               app,
@@ -158,11 +158,11 @@ export function PricingConfigPanel() {
     try {
       await Promise.all(
         PRICING_APPS.flatMap((app) => [
-          proxyApi.setDefaultCostMultiplier(
+          pricingApi.setDefaultCostMultiplier(
             app,
             appConfigs[app].multiplier.trim(),
           ),
-          proxyApi.setPricingModelSource(app, appConfigs[app].source),
+          pricingApi.setPricingModelSource(app, appConfigs[app].source),
         ]),
       );
       toast.success(t("settings.globalProxy.pricingSaved"));

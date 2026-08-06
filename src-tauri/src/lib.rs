@@ -62,7 +62,7 @@ pub use services::{
     profile::{ProfilePayload, ProfileScope, ProfileService},
     provider::reapply_current_codex_official_live,
     skill::{migrate_skills_to_ssot, ImportSkillSelection},
-    ConfigService, EndpointLatency, McpService, PromptService, ProviderService, ProxyService,
+    ConfigService, EndpointLatency, McpService, PromptService, ProviderService,
     SkillService, SpeedtestService,
 };
 pub use settings::{update_settings, AppSettings};
@@ -616,9 +616,6 @@ pub fn run() {
 
             let app_state = AppState::new(db);
 
-            // 设置 AppHandle 用于代理故障转移时的 UI 更新
-            app_state.proxy_service.set_app_handle(app.handle().clone());
-
             // ============================================================
             // 按表独立判断的导入逻辑（各类数据独立检查，互不影响）
             // ============================================================
@@ -1129,61 +1126,14 @@ pub fn run() {
                 log::info!("✓ XaiOAuthManager initialized");
             }
 
-            // 初始化全局出站代理 HTTP 客户端
-            {
-                let db = &app.state::<AppState>().db;
-                let proxy_url = db.get_global_proxy_url().ok().flatten();
-
-                if let Err(e) = crate::proxy::http_client::init(proxy_url.as_deref()) {
-                    log::error!(
-                        "[GlobalProxy] [GP-005] Failed to initialize with saved config: {e}"
-                    );
-
-                    // 清除无效的代理配置
-                    if proxy_url.is_some() {
-                        log::warn!(
-                            "[GlobalProxy] [GP-006] Clearing invalid proxy config from database"
-                        );
-                        if let Err(clear_err) = db.set_global_proxy_url(None) {
-                            log::error!(
-                                "[GlobalProxy] [GP-007] Failed to clear invalid config: {clear_err}"
-                            );
-                        }
-                    }
-
-                    // 使用直连模式重新初始化
-                    if let Err(fallback_err) = crate::proxy::http_client::init(None) {
-                        log::error!(
-                            "[GlobalProxy] [GP-008] Failed to initialize direct connection: {fallback_err}"
-                        );
-                    }
-                }
+            // 初始化直连 HTTP 客户端
+            if let Err(e) = crate::proxy::http_client::init(None) {
+                log::error!("Failed to initialize direct HTTP client: {e}");
             }
 
-            // 异常退出恢复 + 代理状态自动恢复
             let app_handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {
                 let state = app_handle.state::<AppState>();
-
-                // 检查是否有 Live 备份（表示上次异常退出时可能处于接管状态）
-                let has_backups = match state.db.has_any_live_backup().await {
-                    Ok(v) => v,
-                    Err(e) => {
-                        log::error!("检查 Live 备份失败: {e}");
-                        false
-                    }
-                };
-                // 检查 Live 配置是否仍处于被接管状态（包含占位符）
-                let live_taken_over = state.proxy_service.detect_takeover_in_live_configs();
-
-                if has_backups || live_taken_over {
-                    log::warn!("检测到上次异常退出（存在接管残留），正在恢复 Live 配置...");
-                    if let Err(e) = state.proxy_service.recover_from_crash().await {
-                        log::error!("恢复 Live 配置失败: {e}");
-                    } else {
-                        log::info!("Live 配置已恢复");
-                    }
-                }
 
                 // 必须排在 auto-extract 之前：先把历史泄漏进 Gemini 共享片段的凭据
                 // 清干净，否则紧接着的提取会基于被污染的 live 再写一遍。
@@ -1197,9 +1147,6 @@ pub fn run() {
                 }
 
                 initialize_common_config_snippets(&state);
-
-                // 检查 settings 表中的代理状态，自动恢复代理服务
-                restore_proxy_state_on_startup(&state).await;
 
                 // Periodic backup check (on startup)
                 if let Err(e) = state.db.periodic_backup_if_needed() {
@@ -1325,7 +1272,6 @@ pub fn run() {
             commands::switch_provider,
             commands::import_default_config,
             commands::get_claude_desktop_status,
-            commands::get_claude_desktop_default_routes,
             commands::import_claude_desktop_providers_from_claude,
             commands::ensure_claude_desktop_official_provider,
             commands::ensure_codex_official_provider,
@@ -1490,40 +1436,10 @@ pub fn run() {
             // Auto launch
             commands::set_auto_launch,
             commands::get_auto_launch_status,
-            // Proxy server management
-            commands::start_proxy_server,
-            commands::stop_proxy_server,
-            commands::stop_proxy_with_restore,
-            commands::get_proxy_takeover_status,
-            commands::set_proxy_takeover_for_app,
-            commands::get_proxy_status,
-            commands::get_proxy_config,
-            commands::update_proxy_config,
-            // Global & Per-App Config
-            commands::get_global_proxy_config,
-            commands::update_global_proxy_config,
-            commands::get_proxy_config_for_app,
-            commands::update_proxy_config_for_app,
             commands::get_default_cost_multiplier,
             commands::set_default_cost_multiplier,
             commands::get_pricing_model_source,
             commands::set_pricing_model_source,
-            commands::is_proxy_running,
-            commands::is_live_takeover_active,
-            commands::switch_proxy_provider,
-            // Proxy failover commands
-            commands::get_provider_health,
-            commands::reset_circuit_breaker,
-            commands::get_circuit_breaker_config,
-            commands::update_circuit_breaker_config,
-            commands::get_circuit_breaker_stats,
-            // Failover queue management
-            commands::get_failover_queue,
-            commands::get_available_providers_for_failover,
-            commands::add_to_failover_queue,
-            commands::remove_from_failover_queue,
-            commands::get_auto_failover_enabled,
-            commands::set_auto_failover_enabled,
             // Usage statistics
             commands::get_usage_summary,
             commands::get_usage_summary_by_app,
@@ -1596,11 +1512,6 @@ pub fn run() {
             commands::get_hermes_memory_limits,
             commands::set_hermes_memory_enabled,
             // Global upstream proxy
-            commands::get_global_proxy_url,
-            commands::set_global_proxy_url,
-            commands::test_proxy_url,
-            commands::get_upstream_proxy_status,
-            commands::scan_local_proxies,
             // Window theme control
             commands::set_window_theme,
             // Generic managed auth commands
@@ -1696,7 +1607,6 @@ pub fn run() {
             let app_handle = app_handle.clone();
             tauri::async_runtime::spawn(async move {
                 save_window_state_before_exit(&app_handle);
-                cleanup_before_exit(&app_handle).await;
                 // 先于 std::process::exit 显式移除托盘图标。
                 // 进程直接退出时 Tauri 运行时不走正常 Drop 流程，
                 // 不会向 Windows Shell 发送 NIM_DELETE，导致已退出的进程
@@ -1810,48 +1720,6 @@ pub fn run() {
 // 应用退出清理
 // ============================================================
 
-/// 应用退出前的清理工作
-///
-/// 在应用退出前检查代理服务器状态，如果正在运行则停止代理并恢复 Live 配置。
-/// 确保 Claude Code/Codex/Gemini 的配置不会处于损坏状态。
-/// 使用 stop_with_restore_keep_state 保留 settings 表中的代理状态，下次启动时自动恢复。
-pub async fn cleanup_before_exit(app_handle: &tauri::AppHandle) {
-    if let Some(state) = app_handle.try_state::<store::AppState>() {
-        let proxy_service = &state.proxy_service;
-
-        // 退出时也需要兜底：代理可能已崩溃/未运行，但 Live 接管残留仍在（占位符/备份）。
-        let has_backups = match state.db.has_any_live_backup().await {
-            Ok(v) => v,
-            Err(e) => {
-                log::error!("退出时检查 Live 备份失败: {e}");
-                false
-            }
-        };
-        let live_taken_over = proxy_service.detect_takeover_in_live_configs();
-        let needs_restore = has_backups || live_taken_over;
-
-        if needs_restore {
-            log::info!("检测到接管残留，开始恢复 Live 配置（保留代理状态）...");
-            // 使用 keep_state 版本，保留 settings 表中的代理状态
-            if let Err(e) = proxy_service.stop_with_restore_keep_state().await {
-                log::error!("退出时恢复 Live 配置失败: {e}");
-            } else {
-                log::info!("已恢复 Live 配置（代理状态已保留，下次启动将自动恢复）");
-            }
-            return;
-        }
-
-        // 非接管模式：代理在运行则仅停止代理
-        if proxy_service.is_running().await {
-            log::info!("检测到代理服务器正在运行，开始停止...");
-            if let Err(e) = proxy_service.stop().await {
-                log::error!("退出时停止代理失败: {e}");
-            }
-            log::info!("代理服务器清理完成");
-        }
-    }
-}
-
 /// 主动从系统托盘移除托盘图标。
 ///
 /// `std::process::exit` 会绕过 Tauri 运行时，触发不了 `TrayIcon::drop()`，
@@ -1868,66 +1736,6 @@ pub(crate) fn remove_tray_icon_before_exit(app_handle: &tauri::AppHandle) {
             log::warn!("退出时移除托盘图标失败: {e}");
         } else {
             log::info!("已显式从系统托盘移除图标");
-        }
-    }
-}
-
-// ============================================================
-// 启动时恢复代理状态
-// ============================================================
-
-/// 启动时根据 proxy_config 表中的代理状态自动恢复代理服务
-///
-/// 检查 `proxy_config.enabled` 字段，如果有任一应用的状态为 `true`，
-/// 则自动启动代理服务并接管对应应用的 Live 配置。
-const PROXY_STARTUP_APP_TYPES: [&str; 4] = ["claude", "codex", "gemini", "grokbuild"];
-
-async fn enabled_proxy_apps_on_startup(db: &database::Database) -> Vec<&'static str> {
-    let mut apps = Vec::new();
-    for app_type in PROXY_STARTUP_APP_TYPES {
-        if db
-            .get_proxy_config_for_app(app_type)
-            .await
-            .is_ok_and(|config| config.enabled)
-        {
-            apps.push(app_type);
-        }
-    }
-    apps
-}
-
-async fn restore_proxy_state_on_startup(state: &store::AppState) {
-    // 收集需要恢复接管的应用列表（从 proxy_config.enabled 读取）
-    let apps_to_restore = enabled_proxy_apps_on_startup(&state.db).await;
-
-    if apps_to_restore.is_empty() {
-        log::debug!("启动时无需恢复代理状态");
-        return;
-    }
-
-    log::info!("检测到上次代理状态需要恢复，应用列表: {apps_to_restore:?}");
-
-    // 逐个恢复接管状态
-    for app_type in apps_to_restore {
-        match state
-            .proxy_service
-            .set_takeover_for_app(app_type, true)
-            .await
-        {
-            Ok(()) => {
-                log::info!("✓ 已恢复 {app_type} 的代理接管状态");
-            }
-            Err(e) => {
-                log::error!("✗ 恢复 {app_type} 的代理接管状态失败: {e}");
-                // 失败时清除该应用的状态，避免下次启动再次尝试
-                if let Err(clear_err) = state
-                    .proxy_service
-                    .set_takeover_for_app(app_type, false)
-                    .await
-                {
-                    log::error!("清除 {app_type} 代理状态失败: {clear_err}");
-                }
-            }
         }
     }
 }
@@ -2217,7 +2025,7 @@ pub fn restart_process(app_handle: &tauri::AppHandle) -> ! {
 #[cfg(test)]
 mod tests {
     use super::{
-        classify_exit_request, enabled_proxy_apps_on_startup, redact_url_for_log,
+        classify_exit_request, redact_url_for_log,
         redact_url_for_log_with_secrets, redact_url_origin_for_log, runtime_log_level_allows,
         ExitRequestAction,
     };

@@ -16,10 +16,6 @@ import { Input } from "@/components/ui/input";
 import JsonEditor from "@/components/JsonEditor";
 import { useDarkMode } from "@/hooks/useDarkMode";
 import { providerSchema, type ProviderFormData } from "@/lib/schemas/provider";
-import {
-  buildLocalProxyRequestOverrides,
-  formatRequestOverrideObject,
-} from "@/lib/requestOverrides";
 import type {
   ClaudeApiKeyField,
   CodexApiFormat,
@@ -143,16 +139,6 @@ export function GrokBuildProviderForm({
   );
   const [customUserAgent, setCustomUserAgent] = useState(
     initialData?.meta?.customUserAgent ?? "",
-  );
-  const [headersOverride, setHeadersOverride] = useState(
-    formatRequestOverrideObject(
-      initialData?.meta?.localProxyRequestOverrides?.headers,
-    ),
-  );
-  const [bodyOverride, setBodyOverride] = useState(
-    formatRequestOverrideObject(
-      initialData?.meta?.localProxyRequestOverrides?.body,
-    ),
   );
   const [endpointAutoSelect, setEndpointAutoSelect] = useState(
     initialData?.meta?.endpointAutoSelect ?? true,
@@ -374,15 +360,6 @@ export function GrokBuildProviderForm({
       return;
     }
 
-    const requestOverrides = buildLocalProxyRequestOverrides(
-      headersOverride,
-      bodyOverride,
-    );
-    if (requestOverrides.error) {
-      toast.error(requestOverrides.error);
-      return;
-    }
-
     const customEndpoints = Object.fromEntries(
       draftCustomEndpoints.map((url) => [
         url,
@@ -404,7 +381,6 @@ export function GrokBuildProviderForm({
       promptCacheRouting,
       codexChatReasoning,
       customUserAgent: customUserAgent.trim() || undefined,
-      localProxyRequestOverrides: requestOverrides.overrides,
       maxOutputTokens:
         Number.isInteger(parsedMaxOutputTokens) && parsedMaxOutputTokens > 0
           ? parsedMaxOutputTokens
@@ -558,10 +534,6 @@ export function GrokBuildProviderForm({
               speedTestEndpoints={speedTestEndpoints}
               customUserAgent={customUserAgent}
               onCustomUserAgentChange={setCustomUserAgent}
-              localProxyHeadersOverride={headersOverride}
-              onLocalProxyHeadersOverrideChange={setHeadersOverride}
-              localProxyBodyOverride={bodyOverride}
-              onLocalProxyBodyOverrideChange={setBodyOverride}
             />
 
             <div className="space-y-2">

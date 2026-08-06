@@ -20,16 +20,6 @@ vi.mock("react-i18next", () => ({
   useTranslation: () => ({ t: tMock }),
 }));
 
-vi.mock("@/hooks/useProxyStatus", () => ({
-  useProxyStatus: () => ({
-    isRunning: false,
-    takeoverStatus: null,
-    startProxyServer: vi.fn(),
-    stopWithRestore: vi.fn(),
-    isPending: false,
-  }),
-}));
-
 interface SettingsMock {
   settings: any;
   isLoading: boolean;

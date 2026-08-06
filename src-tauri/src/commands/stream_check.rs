@@ -10,7 +10,6 @@ use crate::services::stream_check::{
     HealthStatus, StreamCheckConfig, StreamCheckResult, StreamCheckService,
 };
 use crate::store::AppState;
-use std::collections::HashSet;
 use tauri::State;
 
 /// 连通性检查（单个供应商）
@@ -50,25 +49,9 @@ pub async fn stream_check_all_providers(
     state: State<'_, AppState>,
     copilot_state: State<'_, CopilotAuthState>,
     app_type: AppType,
-    proxy_targets_only: bool,
 ) -> Result<Vec<(String, StreamCheckResult)>, AppError> {
     let config = state.db.get_stream_check_config()?;
     let providers = state.db.get_all_providers(app_type.as_str())?;
-
-    let allowed_ids: Option<HashSet<String>> = if proxy_targets_only {
-        let mut ids = HashSet::new();
-        if let Ok(Some(current_id)) = state.db.get_current_provider(app_type.as_str()) {
-            ids.insert(current_id);
-        }
-        if let Ok(queue) = state.db.get_failover_queue(app_type.as_str()) {
-            for item in queue {
-                ids.insert(item.provider_id);
-            }
-        }
-        Some(ids)
-    } else {
-        None
-    };
 
     let mut results = Vec::new();
     for (id, provider) in providers {
@@ -78,12 +61,6 @@ pub async fn stream_check_all_providers(
         if provider.category.as_deref() == Some("official") {
             continue;
         }
-        if let Some(ids) = &allowed_ids {
-            if !ids.contains(&id) {
-                continue;
-            }
-        }
-
         let base_url_override =
             resolve_copilot_base_url_override(&provider, &copilot_state).await?;
         let result =

@@ -178,12 +178,6 @@ pub async fn restart_app(app: AppHandle) -> Result<bool, String> {
     // 在后台延迟重启，让函数有时间返回响应
     tauri::async_runtime::spawn(async move {
         tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
-        // app.restart() 走 RESTART_EXIT_CODE 路径，ExitRequested 处理器会直接
-        // 放行给 Tauri 默认 re-exec，不执行代理/Live 清理。但本命令用于
-        // app_config_dir 变更后的重启：新实例会切到新数据库，拿不到旧库里的
-        // Live 备份，无法恢复被接管的 Live 配置。因此必须趁旧实例的事件循环
-        // 仍存活，在这里同步完成恢复（保留代理状态，新实例启动时自动重新接管）。
-        crate::cleanup_before_exit(&app).await;
         app.restart();
     });
     Ok(true)
@@ -238,13 +232,12 @@ pub async fn install_update_and_restart(app: AppHandle) -> Result<bool, String> 
         // NIM_DELETE，会残留死图标——与托盘"退出"路径相同的问题）。
         // 因此清理只能放在 install 前执行，且必须显式移除托盘图标。
         crate::save_window_state_before_exit(&app);
-        crate::cleanup_before_exit(&app).await;
         crate::remove_tray_icon_before_exit(&app);
         crate::destroy_single_instance_lock(&app);
         tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
         update.install(bytes).map_err(|e| {
             format!(
-                "Windows 更新安装失败: {e}。已执行退出前清理，代理或 Live 接管可能已暂停；请重启应用或重新开启代理后再试。"
+                "Windows 更新安装失败: {e}。请重启应用后重试。"
             )
         })?;
         Ok(true)
@@ -258,8 +251,6 @@ pub async fn install_update_and_restart(app: AppHandle) -> Result<bool, String> 
             .map_err(|e| format!("安装更新失败: {e}"))?;
 
         crate::save_window_state_before_exit(&app);
-        crate::cleanup_before_exit(&app).await;
-
         log::info!("应用更新安装完成，正在重启应用");
         tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
         crate::restart_process(&app);

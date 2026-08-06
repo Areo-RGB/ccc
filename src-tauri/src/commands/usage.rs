@@ -299,6 +299,112 @@ pub fn get_usage_data_sources(
     crate::services::session_usage::get_data_source_breakdown(&state.db)
 }
 
+async fn get_default_cost_multiplier_internal(
+    state: &AppState,
+    app_type: &str,
+) -> Result<String, AppError> {
+    state.db.get_default_cost_multiplier(app_type).await
+}
+
+#[cfg_attr(not(feature = "test-hooks"), doc(hidden))]
+pub async fn get_default_cost_multiplier_test_hook(
+    state: &AppState,
+    app_type: &str,
+) -> Result<String, AppError> {
+    get_default_cost_multiplier_internal(state, app_type).await
+}
+
+#[tauri::command]
+pub async fn get_default_cost_multiplier(
+    state: State<'_, AppState>,
+    app_type: String,
+) -> Result<String, String> {
+    get_default_cost_multiplier_internal(&state, &app_type)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+async fn set_default_cost_multiplier_internal(
+    state: &AppState,
+    app_type: &str,
+    value: &str,
+) -> Result<(), AppError> {
+    state.db.set_default_cost_multiplier(app_type, value).await
+}
+
+#[cfg_attr(not(feature = "test-hooks"), doc(hidden))]
+pub async fn set_default_cost_multiplier_test_hook(
+    state: &AppState,
+    app_type: &str,
+    value: &str,
+) -> Result<(), AppError> {
+    set_default_cost_multiplier_internal(state, app_type, value).await
+}
+
+#[tauri::command]
+pub async fn set_default_cost_multiplier(
+    state: State<'_, AppState>,
+    app_type: String,
+    value: String,
+) -> Result<(), String> {
+    set_default_cost_multiplier_internal(&state, &app_type, &value)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+async fn get_pricing_model_source_internal(
+    state: &AppState,
+    app_type: &str,
+) -> Result<String, AppError> {
+    state.db.get_pricing_model_source(app_type).await
+}
+
+#[cfg_attr(not(feature = "test-hooks"), doc(hidden))]
+pub async fn get_pricing_model_source_test_hook(
+    state: &AppState,
+    app_type: &str,
+) -> Result<String, AppError> {
+    get_pricing_model_source_internal(state, app_type).await
+}
+
+#[tauri::command]
+pub async fn get_pricing_model_source(
+    state: State<'_, AppState>,
+    app_type: String,
+) -> Result<String, String> {
+    get_pricing_model_source_internal(&state, &app_type)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+async fn set_pricing_model_source_internal(
+    state: &AppState,
+    app_type: &str,
+    value: &str,
+) -> Result<(), AppError> {
+    state.db.set_pricing_model_source(app_type, value).await
+}
+
+#[cfg_attr(not(feature = "test-hooks"), doc(hidden))]
+pub async fn set_pricing_model_source_test_hook(
+    state: &AppState,
+    app_type: &str,
+    value: &str,
+) -> Result<(), AppError> {
+    set_pricing_model_source_internal(state, app_type, value).await
+}
+
+#[tauri::command]
+pub async fn set_pricing_model_source(
+    state: State<'_, AppState>,
+    app_type: String,
+    value: String,
+) -> Result<(), String> {
+    set_pricing_model_source_internal(&state, &app_type, &value)
+        .await
+        .map_err(|e| e.to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
